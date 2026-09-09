@@ -315,6 +315,43 @@ export const generateDocument: AgentTool = {
   },
 };
 
+export const semanticRagSearch: AgentTool = {
+  name: "semantic_rag_search",
+  description: "Perform high-precision vector RAG search across uploaded data sources using dense embeddings and TF-IDF hybrid scoring.",
+  inputSchema: { query: "string — search phrase or question", limit: "number (optional, default 4)" },
+  riskLevel: "read",
+  async execute(input) {
+    const { hybridVectorSearch } = await import("../vector");
+    const query = String(input?.query ?? "").trim();
+    if (!query) throw new Error("query parameter is required");
+    const limit = Math.min(Number(input?.limit) || 4, 8);
+    const chunks = await hybridVectorSearch(query, limit);
+    if (!chunks.length) return { output: `No relevant RAG vector chunks found matching "${query}".` };
+    const output = chunks.map((c, i) => `[RAG Chunk #${i + 1} | Score: ${(c.score || 0).toFixed(3)}]\n${c.content}`).join("\n\n---\n\n");
+    return {
+      output,
+      evidence: chunks.map(c => ({ excerpt: c.content.slice(0, 300), sourceId: c.sourceId }))
+    };
+  }
+};
+
+export const queryAgentMemory: AgentTool = {
+  name: "query_agent_memory",
+  description: "Query long-term episodic and semantic agent memory for past investigation insights, entity relationships, and user preferences.",
+  inputSchema: { query: "string — memory lookup query", limit: "number (optional, default 4)" },
+  riskLevel: "read",
+  async execute(input, ctx) {
+    const { queryMemories } = await import("../agent/memory");
+    const query = String(input?.query ?? "").trim();
+    if (!query) throw new Error("query parameter is required");
+    const limit = Math.min(Number(input?.limit) || 4, 8);
+    const memories = await queryMemories(ctx.userId, query, limit);
+    if (!memories.length) return { output: `No relevant long-term memories found matching "${query}".` };
+    const output = memories.map((m, i) => `[Memory #${i + 1} (${m.category}) | ${m.key}]\n${m.value}`).join("\n\n");
+    return { output };
+  }
+};
+
 export const registry: AgentTool[] = [
   searchFiles,
   readFile,
@@ -326,6 +363,8 @@ export const registry: AgentTool[] = [
   generateChart,
   summarizeSource,
   generateDocument,
+  semanticRagSearch,
+  queryAgentMemory
 ];
 
 export function describeToolsForPlanner(): string {
@@ -337,3 +376,4 @@ export function describeToolsForPlanner(): string {
 export function getTool(name: string): AgentTool | undefined {
   return registry.find((t) => t.name === name);
 }
+

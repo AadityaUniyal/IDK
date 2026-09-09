@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
 import { handle } from "@/lib/api";
+import { indexDataSource } from "@/lib/vector";
 
 const MAX_CONTENT = 200_000;
 
@@ -26,7 +27,6 @@ export async function POST(req: NextRequest) {
   return handle(async () => {
     const user = await requireUser();
     const body = await req.json();
-    // Accepts { name, content } (paste) or multipart-less file JSON { name, base64 }.
     let name = String(body.name ?? "").trim();
     let content = String(body.content ?? "");
     if (body.base64) {
@@ -36,6 +36,16 @@ export async function POST(req: NextRequest) {
     if (content.length > MAX_CONTENT) content = content.slice(0, MAX_CONTENT);
     const type = detectType(name);
     const rows = await db()`INSERT INTO data_sources (user_id, name, type, content) VALUES (${user.id}, ${name.slice(0, 120)}, ${type}, ${content}) RETURNING id, name, type, length(content) AS size`;
+    
+    // Auto-index into RAG Vector Store asynchronously
+    try {
+      if (rows[0]?.id) {
+        await indexDataSource(rows[0].id, name, content);
+      }
+    } catch (e) {
+      console.warn("Async vector indexing skipped:", e);
+    }
+
     return NextResponse.json({ source: rows[0] });
   });
 }

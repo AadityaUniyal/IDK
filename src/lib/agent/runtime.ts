@@ -1,9 +1,12 @@
-// Agent runtime — a step-driven state machine with parallel DAG scheduling,
-// risk-policy evaluation, and durable serverless execution.
+// Agent runtime — a self-healing, multi-agent parallel DAG state machine
+// featuring vector RAG integration, episodic memory, and automatic error diagnosis.
 
 import { db } from "../db";
 import { generateJSON, generateLLM } from "../ai/provider";
 import { describeToolsForPlanner, getTool } from "../tools/registry";
+import { swarmPlanMission, swarmAuditTask } from "./swarm";
+import { indexDataSource, hybridVectorSearch } from "../vector";
+import { extractAndPersistMissionInsights } from "./memory";
 
 type Sql = ReturnType<typeof db>;
 
@@ -21,17 +24,6 @@ export async function appendEvent(missionId: string, type: string, payload: unkn
         type = EXCLUDED.type,
         payload_json = EXCLUDED.payload_json`;
 }
-
-const PLANNER_SYSTEM = `You are TRACE, a universal agentic investigation planner.
-Given a user objective, available data sources, and available tools, produce a dynamic investigation plan.
-Rules:
-- The final task MUST use tool "generate_document" or "generate_chart" with a concrete markdown report plan.
-- Choose tools only from the provided list. Order tasks so dependencies are explicit without cycles.
-- 4 to 8 tasks total. Reference actual source names when relevant. Task inputs must be valid for the tool's input schema.
-- "label" must be a short human-readable action phrase (e.g. "Search sales data", "Run Python analysis"), never an id like "t1".
-- Never claim results; only plan investigations.
-Respond with strict JSON: {"goal": string, "title": string, "tasks": [{"id": string, "label": string, "description": string, "tool": string, "input": object, "dependsOn": string[], "risk": "low"|"medium"|"high"}]}
-Task "id" fields must be "t1","t2",... in order, and dependsOn references them.`;
 
 function hasCycle(tasks: any[]): boolean {
   const adj = new Map<string, string[]>();
@@ -60,23 +52,29 @@ function hasCycle(tasks: any[]): boolean {
 }
 
 export async function planMission(sql: Sql, mission: any, userId: string) {
-  const sources = await sql`SELECT name, type, content FROM data_sources WHERE user_id = ${userId} ORDER BY created_at DESC`;
+  const sources = await sql`SELECT id, name, type, content FROM data_sources WHERE user_id = ${userId} ORDER BY created_at DESC`;
+  
+  // Auto-index data sources into vector store
+  for (const s of sources as any[]) {
+    try {
+      await indexDataSource(s.id, s.name, s.content);
+    } catch (e) {
+      console.warn(`Vector indexing skipped for ${s.name}:`, e);
+    }
+  }
+
   const sourceDesc = sources
     .map((s: any) => `- ${s.name} (${s.type}, ${s.content.length} chars${s.type === "csv" ? `, headers: ${s.content.split(/\r?\n/)[0]?.slice(0, 120)}` : ""})`)
     .join("\n");
 
-  const plan = await generateJSON<any>({
-    system: PLANNER_SYSTEM,
-    prompt: `USER OBJECTIVE:\n${mission.objective}\n\nAVAILABLE DATA SOURCES:\n${sourceDesc || "(none uploaded)"}\n\nAVAILABLE TOOLS:\n${describeToolsForPlanner()}`,
-    maxTokens: 3500,
-  });
+  const plan = await swarmPlanMission(mission.objective, userId, sourceDesc);
 
   const tasks = Array.isArray(plan?.tasks) ? plan.tasks : [];
   const valid = tasks.filter((t: any) => getTool(String(t.tool)));
   if (!valid.length) throw new Error("Planner produced no executable tasks");
 
   if (hasCycle(valid)) {
-    console.warn("DAG cycle detected in planned tasks; resetting dependencies to sequential fallback.");
+    console.warn("DAG cycle detected; resetting dependencies to sequential fallback.");
     valid.forEach((t: any, idx: number) => {
       t.dependsOn = idx > 0 ? [`t${idx}`] : [];
     });
@@ -85,13 +83,12 @@ export async function planMission(sql: Sql, mission: any, userId: string) {
   let pos = 0;
   const idToUuid = new Map<string, string>();
   for (const t of valid as any[]) {
-    const tool = getTool(String(t.tool))!;
-    const requiresApproval = tool.riskLevel === "write" || tool.riskLevel === "external" || tool.riskLevel === "destructive" || t.risk === "high";
+    const audit = await swarmAuditTask(t);
     const deps = (Array.isArray(t.dependsOn) ? t.dependsOn : []).map((d: string) => idToUuid.get(String(d)) ?? String(d));
     const inserted = await sql`INSERT INTO mission_tasks (mission_id, label, description, tool, tool_input, depends_on, status, risk_level, requires_approval, position)
       VALUES (${mission.id}, ${String(t.label ?? "Untitled task").slice(0, 200)}, ${String(t.description ?? "").slice(0, 1000)},
-      ${tool.name}, ${JSON.stringify(t.input ?? {})}, ${JSON.stringify(deps)},
-      ${"pending"}, ${String(t.risk ?? "low")}, ${requiresApproval}, ${pos}) RETURNING id`;
+      ${t.tool}, ${JSON.stringify(t.input ?? {})}, ${JSON.stringify(deps)},
+      ${"pending"}, ${audit.riskLevel}, ${audit.requiresApproval ? 1 : 0}, ${pos}) RETURNING id`;
     idToUuid.set(String(t.id ?? `t${pos + 1}`), inserted[0].id);
     pos++;
   }
@@ -103,7 +100,7 @@ export async function planMission(sql: Sql, mission: any, userId: string) {
   await appendEvent(mission.id, "MISSION_STARTED", { objective: mission.objective });
 }
 
-const SYNTH_SYSTEM = `You are TRACE's final synthesizer. Write a clear markdown report answering the mission objective using ONLY the provided task observations and evidence. Cite evidence references like [#1] where possible. Do not invent facts.`;
+const SYNTH_SYSTEM = `You are TRACE's Chief Synthesis Agent. Write a comprehensive executive markdown report answering the mission objective using task observations, RAG vector chunks, and evidence. Cite evidence references like [#1] where applicable. Do not invent facts.`;
 
 export async function stepMission(sql: Sql, mission: any, userId: string): Promise<{ status: string; advanced: boolean }> {
   const tasks = await sql`SELECT * FROM mission_tasks WHERE mission_id = ${mission.id} ORDER BY position`;
@@ -143,66 +140,108 @@ export async function stepMission(sql: Sql, mission: any, userId: string): Promi
     return false;
   };
 
-  const next = tasks.find(
+  // Identify ALL runnable tasks for Parallel Node Execution
+  const runnableTasks = tasks.filter(
     (t: any) => t.status === "pending" && dependsSatisfied(t) && !isBlockedByWaiting(t)
   );
 
-  if (next) {
-    const tool = getTool(next.tool);
-    if (!tool) {
-      await sql`UPDATE mission_tasks SET status = ${"failed"}, output = ${"Unknown tool: " + next.tool}, completed_at = now() WHERE id = ${next.id}`;
-      await appendEvent(mission.id, "TASK_FAILED", { taskId: next.id, reason: `Unknown tool ${next.tool}` });
-      return { status: "running", advanced: true };
-    }
+  if (runnableTasks.length > 0) {
+    let advancedAny = false;
 
-    if (next.requires_approval) {
-      const prior = await sql`SELECT status FROM approvals WHERE task_id = ${next.id} ORDER BY requested_at DESC LIMIT 1`;
-      const status = prior[0]?.status as string | undefined;
-      if (status === "approved") {
-        // fall through to execution
-      } else if (status === "rejected") {
-        await sql`UPDATE mission_tasks SET status = ${"skipped"}, completed_at = now() WHERE id = ${next.id}`;
-        await appendEvent(mission.id, "TASK_SKIPPED", { taskId: next.id, reason: "Authorization denied" });
-        return { status: "running", advanced: true };
-      } else {
-        if (!status) {
-          await sql`INSERT INTO approvals (mission_id, task_id, action_name, risk_level, reason)
-            VALUES (${mission.id}, ${next.id}, ${`${tool.name}: ${next.label}`}, ${String(next.risk_level)}, ${`Tool risk class "${tool.riskLevel}" requires deliberate human authorization under the current autonomy policy.`})`;
-          await appendEvent(mission.id, "APPROVAL_REQUIRED", { taskId: next.id, action: `${tool.name}: ${next.label}` });
+    // Execute runnable nodes concurrently in parallel batch
+    await Promise.allSettled(
+      runnableTasks.map(async (next: any) => {
+        const tool = getTool(next.tool);
+        if (!tool) {
+          await sql`UPDATE mission_tasks SET status = ${"failed"}, output = ${"Unknown tool: " + next.tool}, completed_at = now() WHERE id = ${next.id}`;
+          await appendEvent(mission.id, "TASK_FAILED", { taskId: next.id, reason: `Unknown tool ${next.tool}` });
+          advancedAny = true;
+          return;
         }
-        await sql`UPDATE mission_tasks SET status = ${"waiting_approval"} WHERE id = ${next.id}`;
-        await sql`UPDATE missions SET status = ${"waiting_for_approval"} WHERE id = ${mission.id}`;
-        return { status: "waiting_for_approval", advanced: true };
-      }
-    }
 
-    await sql`UPDATE mission_tasks SET status = ${"running"}, started_at = now() WHERE id = ${next.id}`;
-    await appendEvent(mission.id, "TASK_STARTED", { taskId: next.id, label: next.label });
-    await appendEvent(mission.id, "TOOL_CALLED", { taskId: next.id, tool: tool.name });
+        const reqApproval = next.requires_approval === 1 || next.requires_approval === true;
 
-    try {
-      const result = await tool.execute(
-        Array.isArray(next.tool_input) ? {} : next.tool_input,
-        { userId, missionId: mission.id }
-      );
-      await sql`UPDATE mission_tasks SET status = ${"completed"}, output = ${result.output.slice(0, 8000)}, completed_at = now() WHERE id = ${next.id}`;
-      await sql`INSERT INTO tool_calls (mission_id, task_id, tool_name, input_json, output_text, status)
-        VALUES (${mission.id}, ${next.id}, ${tool.name}, ${JSON.stringify(next.tool_input)}, ${result.output.slice(0, 4000)}, ${"ok"})`;
-      for (const ev of result.evidence ?? []) {
-        await sql`INSERT INTO evidence (mission_id, task_id, source_id, source_type, location, excerpt)
-          VALUES (${mission.id}, ${next.id}, ${ev.sourceId ?? null}, ${ev.sourceId ? "file" : "tool_result"}, ${ev.location ?? null}, ${String(ev.excerpt).slice(0, 1000)})`;
-        await appendEvent(mission.id, "EVIDENCE_FOUND", { taskId: next.id, excerpt: String(ev.excerpt).slice(0, 200) });
-      }
-      await appendEvent(mission.id, "TASK_COMPLETED", { taskId: next.id, label: next.label });
-      return { status: "running", advanced: true };
-    } catch (err: any) {
-      const msg = err?.message ?? "Tool execution failed";
-      await sql`UPDATE mission_tasks SET status = ${"failed"}, output = ${msg}, completed_at = now() WHERE id = ${next.id}`;
-      await sql`INSERT INTO tool_calls (mission_id, task_id, tool_name, input_json, output_text, status)
-        VALUES (${mission.id}, ${next.id}, ${tool.name}, ${JSON.stringify(next.tool_input)}, ${msg}, ${"failed"})`;
-      await appendEvent(mission.id, "TASK_FAILED", { taskId: next.id, reason: msg });
-      return { status: "running", advanced: true };
-    }
+        if (reqApproval) {
+          const prior = await sql`SELECT status FROM approvals WHERE task_id = ${next.id} ORDER BY requested_at DESC LIMIT 1`;
+          const status = prior[0]?.status as string | undefined;
+          if (status === "approved") {
+            // Authorized — continue to execution
+          } else if (status === "rejected") {
+            await sql`UPDATE mission_tasks SET status = ${"skipped"}, completed_at = now() WHERE id = ${next.id}`;
+            await appendEvent(mission.id, "TASK_SKIPPED", { taskId: next.id, reason: "Authorization denied" });
+            advancedAny = true;
+            return;
+          } else {
+            if (!status) {
+              await sql`INSERT INTO approvals (mission_id, task_id, action_name, risk_level, reason)
+                VALUES (${mission.id}, ${next.id}, ${`${tool.name}: ${next.label}`}, ${String(next.risk_level)}, ${`Tool risk class "${tool.riskLevel}" requires deliberate human authorization under current autonomy policy.`})`;
+              await appendEvent(mission.id, "APPROVAL_REQUIRED", { taskId: next.id, action: `${tool.name}: ${next.label}` });
+            }
+            await sql`UPDATE mission_tasks SET status = ${"waiting_approval"} WHERE id = ${next.id}`;
+            await sql`UPDATE missions SET status = ${"waiting_for_approval"} WHERE id = ${mission.id}`;
+            advancedAny = true;
+            return;
+          }
+        }
+
+        await sql`UPDATE mission_tasks SET status = ${"running"}, started_at = now() WHERE id = ${next.id}`;
+        await appendEvent(mission.id, "TASK_STARTED", { taskId: next.id, label: next.label });
+        await appendEvent(mission.id, "TOOL_CALLED", { taskId: next.id, tool: tool.name });
+
+        const startTime = Date.now();
+        let toolInput = typeof next.tool_input === "string" ? JSON.parse(next.tool_input || "{}") : next.tool_input;
+
+        try {
+          const result = await tool.execute(toolInput, { userId, missionId: mission.id });
+          const duration = Date.now() - startTime;
+
+          await sql`UPDATE mission_tasks SET status = ${"completed"}, output = ${result.output.slice(0, 8000)}, completed_at = now() WHERE id = ${next.id}`;
+          await sql`INSERT INTO tool_calls (mission_id, task_id, tool_name, input_json, output_text, status, duration_ms)
+            VALUES (${mission.id}, ${next.id}, ${tool.name}, ${JSON.stringify(toolInput)}, ${result.output.slice(0, 4000)}, ${"ok"}, ${duration})`;
+          
+          for (const ev of result.evidence ?? []) {
+            await sql`INSERT INTO evidence (mission_id, task_id, source_id, source_type, location, excerpt)
+              VALUES (${mission.id}, ${next.id}, ${ev.sourceId ?? null}, ${ev.sourceId ? "file" : "tool_result"}, ${ev.location ?? null}, ${String(ev.excerpt).slice(0, 1000)})`;
+            await appendEvent(mission.id, "EVIDENCE_FOUND", { taskId: next.id, excerpt: String(ev.excerpt).slice(0, 200) });
+          }
+          await appendEvent(mission.id, "TASK_COMPLETED", { taskId: next.id, label: next.label, durationMs: duration });
+          advancedAny = true;
+        } catch (err: any) {
+          const duration = Date.now() - startTime;
+          const msg = err?.message ?? "Tool execution failed";
+          const retryCount = (next.retry_count || 0) + 1;
+
+          // Self-Healing Diagnostic Retry Loop
+          if (retryCount <= 2) {
+            console.warn(`[TRACE Agent Self-Healing] Task ${next.label} failed (attempt ${retryCount}). Attempting LLM diagnostic parameter correction...`);
+            try {
+              const healedInput = await generateJSON<any>({
+                system: `You are TRACE Self-Healing Agent. A tool call threw an error. Inspect the failed input and error message, then produce corrected parameters.`,
+                prompt: `TOOL: ${tool.name}\nFAILED INPUT: ${JSON.stringify(toolInput)}\nERROR: ${msg}\nRespond with JSON of corrected input:`,
+                maxTokens: 500
+              });
+
+              if (healedInput) {
+                await sql`UPDATE mission_tasks SET retry_count = ${retryCount}, tool_input = ${JSON.stringify(healedInput)} WHERE id = ${next.id}`;
+                await appendEvent(mission.id, "SELF_HEALING_ATTEMPT", { taskId: next.id, retryCount, originalError: msg, correctedInput: healedInput });
+                advancedAny = true;
+                return;
+              }
+            } catch (healingErr) {
+              console.warn("Self healing synthesis failed:", healingErr);
+            }
+          }
+
+          await sql`UPDATE mission_tasks SET status = ${"failed"}, output = ${msg}, completed_at = now() WHERE id = ${next.id}`;
+          await sql`INSERT INTO tool_calls (mission_id, task_id, tool_name, input_json, output_text, status, duration_ms)
+            VALUES (${mission.id}, ${next.id}, ${tool.name}, ${JSON.stringify(toolInput)}, ${msg}, ${"failed"}, ${duration})`;
+          await appendEvent(mission.id, "TASK_FAILED", { taskId: next.id, reason: msg });
+          advancedAny = true;
+        }
+      })
+    );
+
+    return { status: "running", advanced: advancedAny };
   }
 
   const pending = tasks.filter((t: any) => t.status === "pending" || t.status === "waiting_approval");
@@ -216,15 +255,30 @@ export async function stepMission(sql: Sql, mission: any, userId: string): Promi
     .map((t: any, i: number) => `[#${i + 1}] Task "${t.label}" (${t.tool}):\n${String(t.output ?? "").slice(0, 1500)}`)
     .join("\n\n");
 
+  // RAG Search for supplementary evidence before report synthesis
+  let ragChunksText = "";
+  try {
+    const ragChunks = await hybridVectorSearch(mission.objective, 4);
+    if (ragChunks.length > 0) {
+      ragChunksText = "\n\nSEMANTIC RAG CONTEXT:\n" + ragChunks.map(c => `[Chunk from ${c.sourceName || 'Source'}]: ${c.content}`).join("\n\n");
+    }
+  } catch (ragErr) {
+    console.warn("RAG retrieval prior to synthesis skipped:", ragErr);
+  }
+
   const res = await generateLLM({
     system: SYNTH_SYSTEM,
-    prompt: `MISSION OBJECTIVE:\n${mission.objective}\n\nNORMALIZED GOAL:\n${mission.normalized_goal ?? ""}\n\nTASK OBSERVATIONS:\n${observations || "(no successful observations)"}`,
-    maxTokens: 2500,
+    prompt: `MISSION OBJECTIVE:\n${mission.objective}\n\nNORMALIZED GOAL:\n${mission.normalized_goal ?? ""}\n\nTASK OBSERVATIONS:\n${observations || "(no successful observations)"}${ragChunksText}`,
+    maxTokens: 3000,
   });
 
-  const title = `Mission report — ${mission.title}`;
+  const title = `Executive Mission Report — ${mission.title}`;
   await sql`INSERT INTO artifacts (mission_id, type, title, content) VALUES (${mission.id}, ${"report"}, ${title}, ${res.text})`;
   await sql`UPDATE missions SET status = ${"completed"}, completed_at = now() WHERE id = ${mission.id}`;
   await appendEvent(mission.id, "MISSION_COMPLETED", { artifactTitle: title });
+
+  // Store findings in agent long-term memory
+  await extractAndPersistMissionInsights(userId, mission.id, mission.objective, res.text);
+
   return { status: "completed", advanced: true };
 }
