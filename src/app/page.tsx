@@ -1,5 +1,5 @@
 import Link from "next/link";
-import Logo from "@/components/Logo";
+import Logo from "@/components/ui/logo";
 import Ambient3DBackground from "@/components/ui/ambient-3d-background";
 import { ArrowRight, Compass, Shield, Sparkles } from "lucide-react";
 

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import HoldToConfirm from "@/components/HoldToConfirm";
+import HoldToConfirm from "@/components/ui/hold-to-confirm";
 
 type Approval = {
   id: string; action_name: string; risk_level: string; reason: string; status: string;
@@ -48,9 +48,9 @@ export default function ApprovalsPage() {
                 Mission: {a.mission_title}
               </Link>
               <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center">
-                <div className="sm:w-72">
-                  <HoldToConfirm label="Hold to authorize" onConfirm={() => resolve(a.id, "approved")} />
-                </div>
+                  <HoldToConfirm confirmLabel="Authorized" onConfirm={() => resolve(a.id, "approved")}>
+                    Hold to authorize
+                  </HoldToConfirm>
                 <button onClick={() => resolve(a.id, "rejected")}
                   className="rounded-lg border border-border px-4 py-3 text-sm text-muted hover:text-foreground transition">
                   Reject

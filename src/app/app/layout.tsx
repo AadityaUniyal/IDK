@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import Logo from "@/components/Logo";
+import Logo from "@/components/ui/logo";
 
 const nav = [
   { href: "/app", label: "Missions" },
