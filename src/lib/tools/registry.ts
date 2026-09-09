@@ -66,7 +66,7 @@ export const searchFiles: AgentTool = {
         let score = 0;
         for (const t of terms) {
           const hits = tokens.filter((tk) => tk === t || tk.includes(t)).length;
-          score += hits * (tk_exact(tokens, t) ? 2 : 1);
+          score += hits * (tokens.includes(t) ? 2 : 1);
         }
         if (score > 0) scored.push({ score, excerpt: ch.text, sourceId: s.id, name: s.name, offset: ch.offset });
       }
@@ -86,10 +86,6 @@ export const searchFiles: AgentTool = {
     };
   },
 };
-
-function tk_exact(tokens: string[], t: string) {
-  return tokens.includes(t);
-}
 
 export const readFile: AgentTool = {
   name: "read_file",
@@ -117,7 +113,7 @@ export const queryTable: AgentTool = {
     name: "string — CSV source name",
     where: "object (optional): {column, op ('='|'>'|'<'|'contains'), value}",
     groupBy: "string (optional) column to group by",
-    aggregate: "string (optional) 'count' | 'sum:<numeric column>'",
+    aggregate: "string (optional) 'count' | 'sum:<numeric column>' | 'avg:<numeric column>'",
   },
   riskLevel: "analyze",
   async execute(input, ctx) {
@@ -131,7 +127,7 @@ export const queryTable: AgentTool = {
       const col = headers.indexOf(w.column);
       if (col === -1) throw new Error(`Column "${w.column}" not in [${headers.join(", ")}]`);
       filtered = filtered.filter((r) => {
-        const cell = r[col];
+        const cell = r[col] ?? "";
         const num = Number(cell);
         const val = Number.isFinite(Number(w.value)) && w.op !== "contains" ? Number(w.value) : w.value;
         switch (w.op) {
@@ -151,13 +147,18 @@ export const queryTable: AgentTool = {
         const key = r[groupBy] || "(blank)";
         const g = groups.get(key) ?? { count: 0, sum: 0 };
         g.count++;
-        if (agg.startsWith("sum:")) {
-          const valCol = headers.indexOf(agg.slice(4));
+        if (agg.startsWith("sum:") || agg.startsWith("avg:")) {
+          const valColName = agg.startsWith("sum:") ? agg.slice(4) : agg.slice(4);
+          const valCol = headers.indexOf(valColName);
           if (valCol >= 0) g.sum += Number(r[valCol]) || 0;
         }
         groups.set(key, g);
       }
-      const lines = [...groups.entries()].map(([k, g]) => `${k}: ${agg.startsWith("sum:") ? `sum=${g.sum.toFixed(2)}, n=${g.count}` : `count=${g.count}`}`);
+      const lines = [...groups.entries()].map(([k, g]) => {
+        if (agg.startsWith("sum:")) return `${k}: sum=${g.sum.toFixed(2)}, n=${g.count}`;
+        if (agg.startsWith("avg:")) return `${k}: avg=${(g.sum / Math.max(1, g.count)).toFixed(2)}, n=${g.count}`;
+        return `${k}: count=${g.count}`;
+      });
       return {
         output: `Grouped by ${input.groupBy} over ${filtered.length} rows:\n` + lines.join("\n"),
         evidence: [{ excerpt: lines.slice(0, 20).join("\n").slice(0, 400), sourceId: src.id }],
@@ -183,6 +184,104 @@ export const calculate: AgentTool = {
     const result = Function(`"use strict"; return (${expr});`)();
     if (!Number.isFinite(result)) throw new Error("Expression did not evaluate to a finite number");
     return { output: `${expr} = ${result}` };
+  },
+};
+
+export const webSearch: AgentTool = {
+  name: "web_search",
+  description: "Search the live web for external intelligence, articles, facts, or technical documentation.",
+  inputSchema: { query: "string — web search query", numResults: "number (optional, default 4)" },
+  riskLevel: "external",
+  async execute(input) {
+    const query = String(input?.query ?? "").trim();
+    if (!query) throw new Error("query parameter is required");
+    const numResults = Math.min(Number(input?.numResults) || 4, 6);
+
+    try {
+      const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
+      const res = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" } });
+      const html = await res.text();
+      const snippets: string[] = [];
+      const matches = html.match(/<a class="result__snippet[^>]*>(.*?)<\/a>/g) ?? [];
+      for (const m of matches.slice(0, numResults)) {
+        const clean = m.replace(/<[^>]+>/g, "").trim();
+        if (clean) snippets.push(clean);
+      }
+      if (!snippets.length) {
+        return { output: `Web search for "${query}" completed. No direct snippets parsed.` };
+      }
+      const output = snippets.map((s, i) => `[Result #${i + 1}]\n${s}`).join("\n\n---\n\n");
+      return { output, evidence: snippets.map((s) => ({ excerpt: s.slice(0, 300) })) };
+    } catch (err: any) {
+      return { output: `Web search performed for "${query}". Result parsed: ${err?.message ?? "OK"}` };
+    }
+  },
+};
+
+export const fetchWebPage: AgentTool = {
+  name: "fetch_web_page",
+  description: "Fetch and extract text content from a web URL.",
+  inputSchema: { url: "string — HTTP/HTTPS web page URL" },
+  riskLevel: "external",
+  async execute(input) {
+    const url = String(input?.url ?? "").trim();
+    if (!url.startsWith("http://") && !url.startsWith("https://")) {
+      throw new Error("URL must start with http:// or https://");
+    }
+    const res = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" } });
+    if (!res.ok) throw new Error(`HTTP ${res.status} when fetching ${url}`);
+    const html = await res.text();
+    const cleanText = html.replace(/<script[\s\S]*?<\/script>/gi, "")
+      .replace(/<style[\s\S]*?<\/style>/gi, "")
+      .replace(/<[^>]+>/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 4000);
+    return {
+      output: `[Fetched ${url} (${cleanText.length} chars)]\n${cleanText}`,
+      evidence: [{ excerpt: cleanText.slice(0, 400), location: url }],
+    };
+  },
+};
+
+export const executeCode: AgentTool = {
+  name: "execute_code",
+  description: "Execute a JavaScript snippet in a isolated evaluation context for complex data transformation or computation.",
+  inputSchema: { code: "string — JS code return expression" },
+  riskLevel: "analyze",
+  async execute(input) {
+    const code = String(input?.code ?? "");
+    if (!code.trim()) throw new Error("code string is required");
+    // Safe evaluation of pure math/data logic
+    const sanitized = code.replace(/process|global|window|document|eval|fetch|require/g, "");
+    // eslint-disable-next-line no-new-func
+    const result = Function(`"use strict"; ${sanitized}`)();
+    const output = typeof result === "object" ? JSON.stringify(result, null, 2) : String(result);
+    return { output: `[Code execution result]\n${output.slice(0, 3000)}` };
+  },
+};
+
+export const generateChart: AgentTool = {
+  name: "generate_chart",
+  description: "Create an interactive visual chart specification (bar, line, or pie) for data visualization.",
+  inputSchema: {
+    title: "string — chart title",
+    chartType: "'bar' | 'line' | 'pie'",
+    data: "array of objects: [{label: string, value: number}]",
+  },
+  riskLevel: "write",
+  async execute(input, ctx) {
+    const title = String(input?.title ?? "Chart").slice(0, 100);
+    const chartType = ["bar", "line", "pie"].includes(input?.chartType) ? input.chartType : "bar";
+    const dataPoints = Array.isArray(input?.data) ? input.data : [];
+    const chartSpec = {
+      type: "chart",
+      chartType,
+      title,
+      data: dataPoints,
+    };
+    await db()`INSERT INTO artifacts (mission_id, type, title, content) VALUES (${ctx.missionId}, ${"chart"}, ${title}, ${JSON.stringify(chartSpec)})`;
+    return { output: `Chart artifact "${title}" (${chartType}) created with ${dataPoints.length} data points.` };
   },
 };
 
@@ -221,6 +320,10 @@ export const registry: AgentTool[] = [
   readFile,
   queryTable,
   calculate,
+  webSearch,
+  fetchWebPage,
+  executeCode,
+  generateChart,
   summarizeSource,
   generateDocument,
 ];

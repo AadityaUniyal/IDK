@@ -1,4 +1,4 @@
-import { randomBytes, scryptSync, timingSafeEqual } from "crypto";
+import { createHash, randomBytes, scryptSync, timingSafeEqual } from "crypto";
 import { cookies } from "next/headers";
 import { db } from "./db";
 
@@ -18,11 +18,24 @@ export function verifyPassword(password: string, stored: string): boolean {
   return candidate.length === expected.length && timingSafeEqual(candidate, expected);
 }
 
+export function validatePassword(password: string): { valid: boolean; reason?: string } {
+  if (password.length < 8) {
+    return { valid: false, reason: "Password must be at least 8 characters long" };
+  }
+  return { valid: true };
+}
+
+function hashToken(rawToken: string): string {
+  return createHash("sha256").update(rawToken).digest("hex");
+}
+
 export async function createSession(userId: string) {
-  const token = randomBytes(32).toString("hex");
-  await db()`INSERT INTO sessions (token, user_id) VALUES (${token}, ${userId})`;
+  const rawToken = randomBytes(32).toString("hex");
+  const tokenHash = hashToken(rawToken);
+
+  await db()`INSERT INTO sessions (token, user_id) VALUES (${tokenHash}, ${userId})`;
   const jar = await cookies();
-  jar.set(SESSION_COOKIE, token, {
+  jar.set(SESSION_COOKIE, rawToken, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",
@@ -33,19 +46,23 @@ export async function createSession(userId: string) {
 
 export async function destroySession() {
   const jar = await cookies();
-  const token = jar.get(SESSION_COOKIE)?.value;
-  if (token) await db()`DELETE FROM sessions WHERE token = ${token}`;
+  const rawToken = jar.get(SESSION_COOKIE)?.value;
+  if (rawToken) {
+    const tokenHash = hashToken(rawToken);
+    await db()`DELETE FROM sessions WHERE token = ${tokenHash} OR token = ${rawToken}`;
+  }
   jar.delete(SESSION_COOKIE);
 }
 
 export async function getCurrentUser() {
   const jar = await cookies();
-  const token = jar.get(SESSION_COOKIE)?.value;
-  if (!token) return null;
+  const rawToken = jar.get(SESSION_COOKIE)?.value;
+  if (!rawToken) return null;
+  const tokenHash = hashToken(rawToken);
   const rows = await db()`
     SELECT u.id, u.email, u.display_name, u.autonomy_mode
     FROM sessions s JOIN users u ON u.id = s.user_id
-    WHERE s.token = ${token} AND s.expires_at > now()
+    WHERE (s.token = ${tokenHash} OR s.token = ${rawToken}) AND s.expires_at > now()
   `.catch(() => []);
   return rows[0] ?? null;
 }

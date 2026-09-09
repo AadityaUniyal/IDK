@@ -120,8 +120,12 @@ CREATE TABLE IF NOT EXISTS agent_events (
 
 CREATE INDEX IF NOT EXISTS idx_missions_user ON missions(user_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_mission ON mission_tasks(mission_id);
+CREATE INDEX IF NOT EXISTS idx_tasks_mission_pos ON mission_tasks(mission_id, position);
 CREATE INDEX IF NOT EXISTS idx_events_mission ON agent_events(mission_id, sequence_number);
 CREATE INDEX IF NOT EXISTS idx_evidence_mission ON evidence(mission_id);
+CREATE INDEX IF NOT EXISTS idx_approvals_status ON approvals(mission_id, status);
+CREATE INDEX IF NOT EXISTS idx_tool_calls_mission ON tool_calls(mission_id);
+CREATE INDEX IF NOT EXISTS idx_data_sources_user ON data_sources(user_id);
 `;
 
 const statements = DDL.split(";").map((s) => s.trim()).filter(Boolean);
