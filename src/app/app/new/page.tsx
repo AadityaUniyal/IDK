@@ -2,13 +2,28 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import Ambient3DBackground from "@/components/ui/ambient-3d-background";
+import { Sparkles, Database, Compass, ArrowRight, ShieldCheck } from "lucide-react";
+import Link from "next/link";
 
 type Source = { id: string; name: string; type: string; size: number };
 
-const EXAMPLES = [
-  "Compare my uploaded reports, identify contradictions between them, calculate the most important numerical differences, and produce a recommendation.",
-  "Analyze sales.csv and determine the likely drivers of the sales decline. Show the evidence and produce a summary.",
-  "Examine these logs and notes and determine what changed around the error spike.",
+const SAMPLE_TEMPLATES = [
+  {
+    title: "Financial & Revenue Trend Analysis",
+    objective: "Analyze sales.csv, calculate revenue growth rates across regions, compare quarterly performance, and generate a visual bar chart report.",
+    category: "Data Analysis",
+  },
+  {
+    title: "System Log & Error Spike Investigation",
+    objective: "Search log files for error spikes, identify root causes, calculate error frequency, and produce a structured root-cause analysis report.",
+    category: "DevOps & Security",
+  },
+  {
+    title: "Document Contradiction & Claim Audit",
+    objective: "Search uploaded markdown and text reports, compare claims across documents, identify contradictory statements, and summarize ground-truth findings.",
+    category: "Investigation",
+  },
 ];
 
 export default function NewMissionPage() {
@@ -38,45 +53,87 @@ export default function NewMissionPage() {
   }
 
   return (
-    <div className="p-8 max-w-3xl">
-      <h1 className="text-2xl font-semibold">New mission</h1>
-      <p className="mt-1 text-sm text-muted">Describe any objective. TRACE generates the plan — you never pick a workflow template.</p>
+    <div className="relative min-h-screen p-8 text-slate-100 bg-slate-950">
+      <Ambient3DBackground />
 
-      <div className="glass mt-6 rounded-2xl p-6">
-        <div className="mb-2 font-mono text-xs text-muted">
-          DATA SOURCES ({sources.length}) — {sources.map((s) => s.name).join(", ") || "none uploaded"}
-          {sources.length === 0 && (
-            <a href="/app/data" className="ml-2 text-accent hover:underline">Upload data →</a>
-          )}
+      <div className="relative z-10 max-w-3xl">
+        <div className="flex items-center gap-2 font-mono text-xs text-cyan-400">
+          <Sparkles className="h-4 w-4" /> DYNAMIC AI RUNTIME PLANNER
         </div>
-        <form onSubmit={start}>
-          <textarea
-            required
-            rows={5}
-            value={objective}
-            onChange={(e) => setObjective(e.target.value)}
-            placeholder="e.g. Analyze these three reports, compare the claims, identify contradictions, and produce a recommendation…"
-            className="w-full resize-y rounded-lg border border-border bg-surface-2 px-4 py-3 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-          />
-          <div className="mt-3 space-y-2">
-            {EXAMPLES.map((ex, i) => (
-              <button key={i} type="button" onClick={() => setObjective(ex)}
-                className="block w-full truncate rounded-lg border border-border px-3 py-2 text-left text-xs text-muted hover:border-accent/40 hover:text-foreground transition">
-                {ex}
-              </button>
-            ))}
-          </div>
-          {error && <p className="mt-3 rounded-lg border border-red-500/40 bg-red-500/10 px-4 py-2 text-sm text-red-300">{error}</p>}
-          <button disabled={creating || objective.trim().length < 10}
-            className="mt-4 w-full rounded-lg bg-accent px-4 py-3 font-medium text-background hover:brightness-110 disabled:opacity-50 transition">
-            {creating ? "Planning mission…" : "Start mission"}
-          </button>
-        </form>
-      </div>
+        <h1 className="mt-1 text-2xl font-bold tracking-tight text-slate-100">Launch New Autonomous Mission</h1>
+        <p className="mt-1 text-sm text-slate-400">
+          Describe any arbitrary objective. TRACE discovers available data sources and tools to construct a dynamic, multi-step task graph.
+        </p>
 
-      <p className="mt-4 text-xs text-muted">
-        Reads and analysis run automatically. High-impact actions pause at an approval gate.
-      </p>
+        <div className="mt-6 rounded-2xl border border-slate-800 bg-slate-900/60 p-6 backdrop-blur-md">
+          <div className="mb-3 flex items-center justify-between font-mono text-xs text-slate-400">
+            <span className="flex items-center gap-2">
+              <Database className="h-3.5 w-3.5 text-cyan-400" />
+              AVAILABLE SOURCES ({sources.length}): {sources.map((s) => s.name).join(", ") || "none uploaded"}
+            </span>
+            {sources.length === 0 && (
+              <Link href="/app/data" className="text-cyan-400 hover:underline">
+                Upload context files →
+              </Link>
+            )}
+          </div>
+
+          <form onSubmit={start}>
+            <textarea
+              required
+              rows={5}
+              value={objective}
+              onChange={(e) => setObjective(e.target.value)}
+              placeholder="e.g. Analyze these three reports, compare the claims, identify numerical differences, and produce an executive recommendation..."
+              className="w-full resize-y rounded-xl border border-slate-800 bg-slate-950 p-4 font-sans text-sm text-slate-100 placeholder-slate-500 focus:border-cyan-500/50 focus:outline-none"
+            />
+
+            {/* Template Cards */}
+            <div className="mt-4 space-y-2">
+              <span className="font-mono text-[11px] text-slate-400">QUICK START TEMPLATES:</span>
+              <div className="grid gap-2 sm:grid-cols-3">
+                {SAMPLE_TEMPLATES.map((tmpl, i) => (
+                  <button
+                    key={i}
+                    type="button"
+                    onClick={() => setObjective(tmpl.objective)}
+                    className="flex flex-col justify-between rounded-xl border border-slate-800 bg-slate-950 p-3 text-left hover:border-cyan-500/50 transition group"
+                  >
+                    <div>
+                      <span className="font-mono text-[9px] uppercase text-cyan-400">{tmpl.category}</span>
+                      <div className="mt-1 text-xs font-semibold text-slate-200 group-hover:text-cyan-300">{tmpl.title}</div>
+                    </div>
+                    <ArrowRight className="mt-2 h-3.5 w-3.5 text-slate-500 group-hover:text-cyan-400 group-hover:translate-x-1 transition" />
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {error && <p className="mt-3 rounded-lg border border-red-500/40 bg-red-500/10 px-4 py-2 text-xs text-red-300">{error}</p>}
+
+            <button
+              disabled={creating || objective.trim().length < 10}
+              className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-cyan-500 px-5 py-3.5 font-semibold text-slate-950 hover:bg-cyan-400 disabled:opacity-50 transition shadow-lg shadow-cyan-500/20"
+            >
+              {creating ? (
+                <>
+                  <span className="h-4 w-4 rounded-full border-2 border-slate-950 border-t-transparent animate-spin" />
+                  Formulating Task Graph...
+                </>
+              ) : (
+                <>
+                  <Compass className="h-4 w-4" /> Start Autonomous Mission
+                </>
+              )}
+            </button>
+          </form>
+        </div>
+
+        <div className="mt-4 flex items-center gap-2 text-xs text-slate-500">
+          <ShieldCheck className="h-4 w-4 text-amber-400" />
+          <span>Read-only investigations run automatically. High-impact tools trigger human approval gates.</span>
+        </div>
+      </div>
     </div>
   );
 }

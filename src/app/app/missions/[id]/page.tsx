@@ -6,6 +6,8 @@ import HoldToConfirm from "@/components/ui/hold-to-confirm";
 import InteractiveTaskGraph, { TaskNode } from "@/components/ui/interactive-task-graph";
 import TimeTravelReplay from "@/components/ui/time-travel-replay";
 import CommandPalette from "@/components/ui/command-palette";
+import ChartRenderer, { ChartSpec } from "@/components/ui/chart-renderer";
+import Ambient3DBackground from "@/components/ui/ambient-3d-background";
 
 type Task = TaskNode;
 type Event = { id: string; sequence_number: number; type: string; payload_json: any; created_at: string };
@@ -48,7 +50,6 @@ export default function MissionPage() {
     return d;
   }, [id]);
 
-  // Connect Server-Sent Events (SSE) for real-time live streaming
   useEffect(() => {
     if (!id) return;
     const es = new EventSource(`/api/missions/${id}/stream`);
@@ -66,7 +67,6 @@ export default function MissionPage() {
     };
   }, [id, refresh]);
 
-  // Drive the agent: while the mission is active, repeatedly call /step.
   useEffect(() => {
     if (!data) return;
     const status = data.mission.status;
@@ -103,6 +103,16 @@ export default function MissionPage() {
     refresh();
   }
 
+  function parseChartSpec(content: string): ChartSpec | null {
+    try {
+      const parsed = JSON.parse(content);
+      if (parsed && parsed.type === "chart" && Array.isArray(parsed.data)) {
+        return parsed as ChartSpec;
+      }
+    } catch {}
+    return null;
+  }
+
   if (!data) {
     return (
       <div className="flex h-screen items-center justify-center font-mono text-sm text-slate-400 bg-slate-950">
@@ -116,13 +126,14 @@ export default function MissionPage() {
   const active = !["completed", "failed", "cancelled", "draft"].includes(mission.status);
 
   return (
-    <div className="flex h-screen flex-col bg-slate-950 text-slate-100 selection:bg-cyan-500/30">
+    <div className="relative flex h-screen flex-col bg-slate-950 text-slate-100 selection:bg-cyan-500/30">
+      <Ambient3DBackground />
       <CommandPalette />
 
       {/* Header */}
-      <header className="flex items-center justify-between gap-4 border-b border-slate-800 bg-slate-900/60 px-6 py-4 backdrop-blur-md">
+      <header className="relative z-10 flex items-center justify-between gap-4 border-b border-slate-800 bg-slate-900/60 px-6 py-4 backdrop-blur-md">
         <div className="min-w-0">
-          <div className="font-mono text-xs text-slate-400">TRACE / MISSION CANVASE</div>
+          <div className="font-mono text-xs text-slate-400">TRACE / MISSION CANVAS</div>
           <h1 className="truncate text-lg font-semibold text-slate-100">{mission.title}</h1>
         </div>
         <div className="flex items-center gap-3">
@@ -147,7 +158,7 @@ export default function MissionPage() {
 
       {/* Approval Banner */}
       {pendingApproval && (
-        <div className="border-b border-amber-500/40 bg-amber-950/20 px-6 py-4 backdrop-blur-md">
+        <div className="relative z-10 border-b border-amber-500/40 bg-amber-950/20 px-6 py-4 backdrop-blur-md">
           <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
             <div>
               <div className="font-mono text-xs tracking-widest text-amber-400">⚠ ACTION REQUIRES AUTHORIZATION</div>
@@ -175,7 +186,7 @@ export default function MissionPage() {
         </div>
       )}
 
-      <div className="flex flex-1 overflow-hidden">
+      <div className="relative z-10 flex flex-1 overflow-hidden">
         {/* Task Graph Canvas */}
         <div className="flex-1 overflow-y-auto p-6">
           <h2 className="mb-4 font-mono text-xs tracking-widest text-slate-400">DYNAMIC TASK DAG GRAPH — {tasks.length} TASKS</h2>
@@ -209,7 +220,7 @@ export default function MissionPage() {
 
         {/* Task Inspector */}
         {selectedTask && (
-          <aside className="w-96 shrink-0 overflow-y-auto border-l border-slate-800 bg-slate-900/40 p-6">
+          <aside className="w-96 shrink-0 overflow-y-auto border-l border-slate-800 bg-slate-900/40 p-6 backdrop-blur-md">
             <div className="flex items-center justify-between">
               <h2 className="font-mono text-xs tracking-widest text-slate-400">TASK INSPECTOR</h2>
               <button onClick={() => setSelectedTask(null)} className="text-slate-400 hover:text-slate-100">
@@ -255,7 +266,7 @@ export default function MissionPage() {
         )}
 
         {/* Activity / Evidence / Replay / Artifact Sidebar */}
-        <aside className="flex w-[26rem] shrink-0 flex-col border-l border-slate-800 bg-slate-900/40">
+        <aside className="flex w-[26rem] shrink-0 flex-col border-l border-slate-800 bg-slate-900/40 backdrop-blur-md">
           <div className="flex border-b border-slate-800 font-mono text-xs">
             {(["activity", "evidence", "replay", "artifact"] as const).map((t) => (
               <button
@@ -316,14 +327,21 @@ export default function MissionPage() {
             )}
 
             {tab === "artifact" && (
-              <div>
+              <div className="space-y-4">
                 {artifacts.length === 0 && <p className="text-sm text-slate-500">No artifacts generated yet.</p>}
-                {artifacts.map((a) => (
-                  <div key={a.id} className="rounded-xl border border-slate-800 bg-slate-950 p-4">
-                    <div className="font-semibold text-cyan-400">{a.title}</div>
-                    <pre className="mt-3 whitespace-pre-wrap font-sans text-xs text-slate-300 leading-relaxed">{a.content}</pre>
-                  </div>
-                ))}
+                {artifacts.map((a) => {
+                  const chartSpec = parseChartSpec(a.content);
+                  return (
+                    <div key={a.id} className="rounded-xl border border-slate-800 bg-slate-950 p-4">
+                      <div className="font-semibold text-cyan-400">{a.title}</div>
+                      {chartSpec ? (
+                        <ChartRenderer spec={chartSpec} />
+                      ) : (
+                        <pre className="mt-3 whitespace-pre-wrap font-sans text-xs text-slate-300 leading-relaxed">{a.content}</pre>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
