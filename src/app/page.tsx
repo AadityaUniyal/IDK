@@ -13,9 +13,10 @@ export default function Landing() {
       <header className="flex items-center justify-between px-6 py-5 md:px-12">
         <Logo />
         <nav className="flex items-center gap-3 text-sm">
-          <Link href="/hero-demo" className="rounded-lg px-4 py-2 text-accent hover:bg-accent/10 transition">Hero Demo</Link>
-          <Link href="/login" className="rounded-lg px-4 py-2 text-muted hover:text-foreground transition">Sign in</Link>
-          <Link href="/signup" className="rounded-lg border border-accent/50 px-4 py-2 text-accent hover:bg-accent/10 transition">Get started</Link>
+          <Link href="/hero-demo" className="rounded-lg px-3 py-2 text-accent hover:bg-accent/10 transition">Hero Demo</Link>
+          <Link href="/hold-to-confirm-demo" className="rounded-lg px-3 py-2 text-accent hover:bg-accent/10 transition">Hold to Confirm Demo</Link>
+          <Link href="/login" className="rounded-lg px-3 py-2 text-muted hover:text-foreground transition">Sign in</Link>
+          <Link href="/signup" className="rounded-lg border border-accent/50 px-3 py-2 text-accent hover:bg-accent/10 transition">Get started</Link>
         </nav>
       </header>
 
