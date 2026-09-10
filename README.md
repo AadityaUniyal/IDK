@@ -1,109 +1,117 @@
-# TRACE — Universal Agentic Investigation Platform
+# TRACE
 
 **Investigate. Understand. Act.**
 
-TRACE is a full-stack web application that turns an arbitrary objective into a dynamic, tool-executing, evidence-backed AI investigation — streamed live to a mission canvas, gated by human approval for high-impact actions, and fully replayable.
+TRACE is a visual operating system for agentic investigation. A user provides an objective and their own context; TRACE discovers available tools, creates a dynamic task graph, executes safe work, collects evidence, adapts after failures, and pauses before consequential actions.
 
-Give the agent a goal. Watch it investigate. Stay in control.
+## Product capabilities
 
----
+- Branded landing, signup, login, onboarding, mission control, settings, data inventory, tool registry, approvals, artifacts, replay, and mission canvas.
+- Dynamic AI planning through Gemini or Groq behind one server-side provider interface.
+- Durable Neon Postgres persistence for users, sessions, workspaces, policies, missions, tasks, runs, tool calls, model calls, evidence, claims, approvals, artifacts, events, vector chunks, and memory.
+- Deterministic policy enforcement: the model proposes actions, but the server decides whether they may execute.
+- Human approval gates for writes, external requests, and destructive actions.
+- Step-driven, serverless-safe execution with mission leases, bounded retries, self-healing, replanning, SSE refresh, and replayable events.
+- Hashed local embeddings with hybrid retrieval and long-term mission memory.
 
-## What it does
+## Repository layout
 
-1. **Sign up / sign in** — server-side auth (scrypt-hashed passwords, HTTP-only session cookies) on Neon Postgres.
-2. **Upload data sources** — `.txt`, `.md`, `.json`, `.csv`, `.log` files become searchable context.
-3. **Describe any objective** — no templates, no hardcoded workflows. The agent plans at runtime.
-4. **Watch the mission** — the LLM planner generates a task graph from the objective + available tools + your data. Tasks execute one by one, streaming events into the activity feed. Evidence is captured from every tool result.
-5. **Approve high-impact actions** — tools classified `write` / `external` / `destructive` pause the mission at an approval gate. The UI uses a **hold-to-confirm** control (release early cancels; Escape works; keyboard accessible). The **server**, not the browser, finalizes the authorization.
-6. **Get artifacts** — the mission ends with an evidence-cited markdown report, plus any documents the agent generated along the way.
-7. **Replay** — every event is persisted with a sequence number and timestamp for a full audit trail.
-
-## Architecture
-
-```
-Next.js (App Router, TS, Tailwind)
-├── UI: landing, auth, mission center, mission canvas + inspector +
-│   activity/evidence/replay/artifact tabs, approval center, tools registry
-└── API routes (all server-side)
-    ├── /api/auth/*            scrypt + session cookies
-    ├── /api/missions[/*]      create / start / step / detail
-    ├── /api/approvals[/*]     list / approve / reject (server-verified)
-    ├── /api/data-sources      upload & manage context files
-    └── /api/tools             live tool registry description
-
-Agent runtime (src/lib/agent/runtime.ts) — step-driven state machine:
-    planMission() → LLM planner → task graph rows
-    stepMission() → scheduler → policy gate → tool executor → evidence
-                 → synthesizer → artifact → MISSION_COMPLETED
-
-LLM providers (src/lib/ai) — one interface, two adapters:
-    Gemini (gemini-2.5-flash) primary, Groq (openai/gpt-oss-120b) fallback.
-
-Tool registry (src/lib/tools/registry.ts) — capability discovery:
-    search_files · read_file · query_table · calculate ·
-    summarize_source (LLM) · generate_document (approval-gated)
-
-Neon Postgres — users, sessions, data_sources, missions, mission_tasks,
-    tool_calls, evidence, approvals, artifacts, agent_events
+```text
+trace/
+├── frontend/                 # Next.js App Router, UI, route handlers
+│   ├── src/app/              # Public pages, authenticated product, API endpoints
+│   ├── src/components/       # TRACE visual and interaction components
+│   ├── package.json
+│   └── tsconfig.json
+├── backend/                  # Server-only runtime and integrations
+│   └── lib/
+│       ├── agent/            # Planning, execution, policy, memory, events
+│       ├── ai/               # Gemini/Groq provider adapters and failover
+│       └── tools/            # Runtime capability registry
+├── database/                 # Neon schema initializer and indexes
+│   └── init-db.mjs
+└── SECURITY.md               # Secret handling and deployment checklist
 ```
 
-### Why step-driven?
-
-Vercel serverless functions can't run background workers. The runtime advances **one unit of work per `POST /api/missions/:id/step`** call; the client drives stepping while the mission is active. All state lives in Postgres, so a refresh, reconnect, or different device resumes exactly where the mission left off — and every event is durable.
-
-### No hardcoded workflows
-
-The planner prompt receives the objective, your actual data-source inventory, and the tool registry — then emits the graph. Nothing in the codebase maps objectives to fixed task sequences. Tools are validated, risk-classified, and executed server-side only.
+Frontend route handlers import server-only modules through `@backend/*`. Client components never receive provider keys, database credentials, raw session tokens, or privileged database access.
 
 ## Local setup
 
-```bash
+Requirements:
+
+- Node.js 20+
+- A Neon Postgres database
+- Rotated Gemini and/or Groq API keys
+
+PowerShell:
+
+```powershell
+cd frontend
+Copy-Item .env.example .env.local
+# Edit frontend/.env.local with your own local values.
 npm install
-cp .env.example .env.local   # fill in your own keys
-node scripts/init-db.mjs     # creates the schema on your Neon database
+npm run db:init
 npm run dev
 ```
 
-Environment variables (all server-only, never shipped to the browser):
+Open `http://localhost:3000`, create an account, complete onboarding, upload a CSV/JSON/Markdown/text source, and launch a mission.
+
+## Environment variables
+
+All variables below are server-side except `NEXT_PUBLIC_APP_URL`, which is only a public origin and must never contain credentials.
 
 | Variable | Purpose |
-|---|---|
+| --- | --- |
 | `DATABASE_URL` | Neon Postgres connection string |
-| `GEMINI_API_KEY` | Google AI Studio key (primary provider) |
-| `GROQ_API_KEY` | Groq key (fallback provider) |
-| `DEFAULT_LLM_PROVIDER` | `gemini` (default) or `groq` |
-| `FALLBACK_LLM_PROVIDER` | the other one |
-| `AUTH_SECRET` | reserved for future token signing |
+| `GEMINI_API_KEY` | Primary model provider key |
+| `GROQ_API_KEY` | Fallback model provider key |
+| `DEFAULT_LLM_PROVIDER` | `gemini` or `groq` |
+| `FALLBACK_LLM_PROVIDER` | Secondary provider |
+| `AUTH_SECRET` | Reserved for future signed-token features |
+| `NEXT_PUBLIC_APP_URL` | Public application origin |
 
-## Deploy to Vercel
+Never commit `.env.local`, provider keys, database URLs, session cookies, logs, screenshots containing secrets, or copied API responses. If a secret has appeared in chat, terminal output, or a public repository, revoke and rotate it.
 
-1. Push this folder to a GitHub repository (`.env.local` is git-ignored — secrets never leave your machine).
-2. On [vercel.com](https://vercel.com): **Add New → Project** → import the repo. Next.js is auto-detected.
-3. Add environment variables in **Project → Settings → Environment Variables** (all environments):
-   `DATABASE_URL`, `GEMINI_API_KEY`, `GROQ_API_KEY`, `DEFAULT_LLM_PROVIDER`, `FALLBACK_LLM_PROVIDER`, `AUTH_SECRET`.
-4. Deploy. Then run the schema init once against production (locally with the same env vars, or via the Vercel CLI):
-   ```bash
-   node scripts/init-db.mjs
-   ```
-5. Open the deployment URL, sign up, upload a CSV, start a mission.
+## Runtime flow
 
-Notes:
-- `/step` sets `maxDuration = 60`; Hobby-plan functions allow this.
-- Neon's HTTP driver (`@neondatabase/serverless`) works over serverless fetch — no connection pooling issues.
+```text
+objective
+  -> context and tool discovery
+  -> AI architect creates a cycle-checked DAG
+  -> Neon lease prevents duplicate step execution
+  -> runnable tasks execute in parallel
+  -> deterministic policy evaluates risk
+  -> tool output, evidence, runs, and events persist
+  -> bounded self-healing and replanning recover failures
+  -> synthesis creates a report and evidence-linked claims
+  -> mission insights enter long-term memory
+```
 
-## Security model
+The browser advances active work through `POST /api/missions/:id/step`. This keeps the runtime compatible with serverless deployment and lets missions survive refreshes, reconnects, and device changes.
 
-- API keys and the database URL live only in server-side env vars; API routes are the only code that touches them.
-- The LLM proposes; the server disposes. Tool calls are schema-checked, risk-classified, and gated by the policy engine **before** execution. Approval decisions are stored server-side and verified there.
-- The approval control is deliberately slow (press-and-hold) because the actions behind it are consequential.
+## Production build
 
-## Disclaimer
+```powershell
+cd frontend
+npm run build
+```
 
-TRACE is a portfolio/research project. Tools operate only on data you upload to your own workspace; there are no external side-effecting integrations configured.
+Initialize the Neon schema once per environment:
 
-## Known limitations / future work
+```powershell
+cd frontend
+npm run db:init
+```
 
-- PDF ingestion (extract to text before upload for now)
-- Streaming responses (SSE) instead of step-polling
-- Evidence graph visualization, claim support/contradiction linking
-- Team workspaces and per-workspace policy editing
+## Git workflow
+
+Do not commit generated directories or local state. Before pushing:
+
+```powershell
+git status --short
+git diff --check
+cd frontend
+npm run build
+```
+
+Review the staged diff manually and confirm that no `.env*`, key, database URL, cookie, log, or local data file is present.

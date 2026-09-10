@@ -1,0 +1,74 @@
+@import "tailwindcss";
+
+:root {
+  --background: #060a12;
+  --foreground: #e8eef7;
+  --accent: #38d5f0;
+  --accent-dim: #1493ad;
+  --amber: #f0b438;
+  --surface: #0c1322;
+  --surface-2: #111b30;
+  --border: #1c2a45;
+  --muted: #8496b0;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-accent: var(--accent);
+  --color-amber: var(--amber);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-border: var(--border);
+  --color-muted: var(--muted);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+}
+
+*:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+.trace-grid-bg {
+  background-image:
+    radial-gradient(ellipse 80% 50% at 50% -20%, color-mix(in srgb, var(--accent) 12%, transparent), transparent),
+    linear-gradient(var(--border) 1px, transparent 1px),
+    linear-gradient(90deg, var(--border) 1px, transparent 1px);
+  background-size: 100% 100%, 44px 44px, 44px 44px;
+  background-position: 0 0, 0 0, 0 0;
+}
+
+.glass {
+  background: color-mix(in srgb, var(--surface) 80%, transparent);
+  backdrop-filter: blur(10px);
+  border: 1px solid var(--border);
+}
+
+@keyframes trace-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+.animate-trace-pulse { animation: trace-pulse 1.8s ease-in-out infinite; }
+
+@keyframes trace-scan {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(400%); }
+}
+.animate-trace-scan { animation: trace-scan 2.4s linear infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-trace-pulse, .animate-trace-scan, .animate-pulse, .animate-spin { animation: none; }
+}
+
+code, pre { font-family: var(--font-geist-mono), monospace; }
