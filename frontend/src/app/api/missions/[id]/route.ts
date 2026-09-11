@@ -33,3 +33,47 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
     return NextResponse.json({ mission, tasks, events, evidence, artifacts, approvals, claims, claimEvidence, runs });
   });
 }
+
+export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  return handle(async () => {
+    const user = await requireUser();
+    const { id } = await params;
+    const body = await req.json();
+
+    const updates: Record<string, unknown> = {};
+    if (body.title !== undefined) {
+      const title = String(body.title).trim().slice(0, 160);
+      if (!title) return NextResponse.json({ error: "Title cannot be empty" }, { status: 400 });
+      updates.title = title;
+    }
+    if (body.objective !== undefined) {
+      const objective = String(body.objective).trim().slice(0, 4000);
+      if (!objective) return NextResponse.json({ error: "Objective cannot be empty" }, { status: 400 });
+      updates.objective = objective;
+    }
+
+    if (!Object.keys(updates).length) {
+      return NextResponse.json({ error: "No valid fields to update" }, { status: 400 });
+    }
+
+    const updated = await db()`
+      UPDATE missions SET
+        title = COALESCE(${updates.title ?? null}, title),
+        objective = COALESCE(${updates.objective ?? null}, objective)
+      WHERE id = ${id} AND user_id = ${user.id}
+      RETURNING id, title, objective, status`;
+
+    if (!updated.length) return NextResponse.json({ error: "Mission not found" }, { status: 404 });
+    return NextResponse.json({ ok: true, mission: updated[0] });
+  });
+}
+
+export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  return handle(async () => {
+    const user = await requireUser();
+    const { id } = await params;
+    const deleted = await db()`DELETE FROM missions WHERE id = ${id} AND user_id = ${user.id} RETURNING id`;
+    if (!deleted.length) return NextResponse.json({ error: "Mission not found" }, { status: 404 });
+    return NextResponse.json({ ok: true, message: "Mission deleted successfully" });
+  });
+}

@@ -1,10 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@backend/db";
 import { verifyPassword, createSession, normalizeEmail } from "@backend/auth";
+import { checkRateLimit } from "@backend/rate-limit";
 import { handle } from "@backend/api";
 
 export async function POST(req: NextRequest) {
   return handle(async () => {
+    const ip = req.headers.get("x-forwarded-for") ?? "127.0.0.1";
+    const rate = checkRateLimit(`login:${ip}`, 10, 60000);
+    if (!rate.allowed) {
+      return NextResponse.json({ error: "Too many login attempts. Please wait 1 minute before trying again." }, { status: 429 });
+    }
     const { email, password } = await req.json();
     const normalizedEmail = normalizeEmail(String(email ?? ""));
     if (!normalizedEmail || !String(password ?? "")) {

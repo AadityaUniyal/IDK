@@ -1,14 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@backend/db";
 import { hashPassword, createSession, validatePassword, normalizeEmail } from "@backend/auth";
+import { checkRateLimit } from "@backend/rate-limit";
 import { handle } from "@backend/api";
 
 export async function POST(req: NextRequest) {
   return handle(async () => {
+    const ip = req.headers.get("x-forwarded-for") ?? "127.0.0.1";
+    const rate = checkRateLimit(`signup:${ip}`, 5, 60000);
+    if (!rate.allowed) {
+      return NextResponse.json({ error: "Too many registration attempts. Please wait 1 minute before trying again." }, { status: 429 });
+    }
     const { email, password, displayName, workspaceName } = await req.json();
     const normalizedEmail = normalizeEmail(String(email ?? ""));
-    if (!normalizedEmail || !password) {
-      return NextResponse.json({ error: "Email and password are required" }, { status: 400 });
+    if (!normalizedEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+      return NextResponse.json({ error: "A valid email address is required" }, { status: 400 });
+    }
+    if (!password) {
+      return NextResponse.json({ error: "Password is required" }, { status: 400 });
     }
     const check = validatePassword(password);
     if (!check.valid) {

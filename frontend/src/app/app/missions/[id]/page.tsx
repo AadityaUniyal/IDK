@@ -8,6 +8,7 @@ import TimeTravelReplay from "@/components/ui/time-travel-replay";
 import CommandPalette from "@/components/ui/command-palette";
 import ChartRenderer, { ChartSpec } from "@/components/ui/chart-renderer";
 import Ambient3DBackground from "@/components/ui/ambient-3d-background";
+import ArtifactExporter from "@/components/ui/artifact-exporter";
 import { Pause, Play, X } from "lucide-react";
 
 type Task = TaskNode;
@@ -238,14 +239,8 @@ export default function MissionPage() {
               <div className="grid gap-3 sm:grid-cols-2">
                 {artifacts.map((a) => (
                   <div key={a.id} className="rounded-xl border border-slate-800 bg-slate-900/60 p-4 hover:border-cyan-500/50 transition">
-                    <button
-                      onClick={() => {
-                        setTab("artifact");
-                      }}
-                      className="font-medium text-cyan-400 hover:underline"
-                    >
-                      {a.title}
-                    </button>
+                    <div className="font-medium text-cyan-400">{a.title}</div>
+                    <ArtifactExporter title={a.title} content={a.content} />
                   </div>
                 ))}
               </div>
