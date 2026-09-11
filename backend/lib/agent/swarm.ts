@@ -2,6 +2,7 @@
 import { generateJSON } from "../ai/provider";
 import { describeToolsForPlanner, getTool } from "../tools/registry";
 import { queryMemories } from "./memory";
+import { sanitizePromptInput } from "../ai/guard";
 
 export interface AgentRole {
   name: string;
@@ -60,18 +61,29 @@ export async function swarmAuditTask(task: any): Promise<{ riskLevel: string; re
     return { riskLevel: "low", requiresApproval: false, rationale: "Default read-only tool" };
   }
 
+  // Enforce Safety & Audit Agent injection guard
+  const inputStr = JSON.stringify(task.input || {});
+  const guard = sanitizePromptInput(inputStr);
+  if (!guard.safe) {
+    return {
+      riskLevel: "high",
+      requiresApproval: true,
+      rationale: `SafetyAudit Agent flagged task: ${guard.reason}`,
+    };
+  }
+
   const isDestructive = tool.riskLevel === "destructive" || tool.riskLevel === "write" || tool.riskLevel === "external";
   if (isDestructive || task.risk === "high") {
     return {
       riskLevel: "high",
       requiresApproval: true,
-      rationale: `Tool ${tool.name} categorized as ${tool.riskLevel} risk requires explicit human review.`
+      rationale: `Tool ${tool.name} categorized as ${tool.riskLevel} risk requires explicit human authorization.`,
     };
   }
 
   return {
     riskLevel: task.risk || "low",
     requiresApproval: false,
-    rationale: "Automated safety audit approved read-only execution."
+    rationale: "SafetyAudit Agent approved execution.",
   };
 }
