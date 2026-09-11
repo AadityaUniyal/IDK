@@ -33,7 +33,16 @@ function hashToken(rawToken: string): string {
   return createHash("sha256").update(rawToken).digest("hex");
 }
 
+export async function purgeExpiredSessions() {
+  try {
+    await db()`DELETE FROM sessions WHERE expires_at <= now()`;
+  } catch (err) {
+    console.warn("Failed to purge expired sessions:", err);
+  }
+}
+
 export async function createSession(userId: string) {
+  await purgeExpiredSessions();
   const rawToken = randomBytes(32).toString("hex");
   const tokenHash = hashToken(rawToken);
 

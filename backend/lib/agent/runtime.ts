@@ -294,7 +294,7 @@ export async function stepMission(sql: Sql, mission: any, userId: string): Promi
   // RAG search for supplementary semantic context before synthesis.
   let ragChunksText = "";
   try {
-    const ragChunks = await hybridVectorSearch(mission.objective, 4);
+    const ragChunks = await hybridVectorSearch(mission.objective, 4, userId);
     if (ragChunks.length > 0) {
       ragChunksText = "\n\nSEMANTIC RAG CONTEXT:\n" + ragChunks.map(c => `[Chunk from ${c.sourceName || 'Source'}]: ${c.content}`).join("\n\n");
     }

@@ -43,18 +43,18 @@ const DEFAULT_VIDEO = `${REPO}/Legs_sprinting_on_pavement_1080p_202608312152.mp4
 const DEFAULT_BG = "https://images.unsplash.com/photo-1517838277536-f5f99be501cd?q=80&w=1920&auto=format&fit=crop"
 
 const DEFAULT_TRACKS: Track[] = [
-  { id: "t1", title: "Night Drift", artist: "Halcyon Bloom", colorA: "#5db8ff", colorB: "#0b407d" },
-  { id: "t2", title: "Low Static", artist: "Marbled Glass", colorA: "#ff8a5c", colorB: "#7a3418" },
-  { id: "t3", title: "Concrete Bloom", artist: "Faded Radio", colorA: "#4fd8e0", colorB: "#0e4a4c" },
-  { id: "t4", title: "Second Wind", artist: "Pale Signal", colorA: "#ffb35c", colorB: "#7a4a10" },
-  { id: "t5", title: "Empty Streets", artist: "Nocturne Coast", colorA: "#6c9fff", colorB: "#132248" },
-  { id: "t6", title: "Salt & Static", artist: "Tidal Grey", colorA: "#5ce0c6", colorB: "#0e4a3c" },
-  { id: "t7", title: "Amber Hours", artist: "Loose Gravity", colorA: "#ffcc66", colorB: "#7a5410" },
-  { id: "t8", title: "Half Light", artist: "Faded Radio", colorA: "#8ab8ff", colorB: "#1a2a5c" },
-  { id: "t9", title: "Runner's High", artist: "Pale Signal", colorA: "#ff7a6c", colorB: "#5c1818" },
-  { id: "t10", title: "Glass Horizon", artist: "Marbled Glass", colorA: "#5cd0ff", colorB: "#0e3a56" },
-  { id: "t11", title: "Warm Static", artist: "Halcyon Bloom", colorA: "#ff9a5c", colorB: "#5c2a10" },
-  { id: "t12", title: "Farther Still", artist: "Nocturne Coast", colorA: "#8fa8ff", colorB: "#2c1a5c" },
+  { id: "t1", title: "01. Objective Ingestion", artist: "TRACE Normalization Engine", colorA: "#38d5f0", colorB: "#0b407d" },
+  { id: "t2", title: "02. Tool Discovery & Policy", artist: "Deterministic Risk Engine", colorA: "#f0b438", colorB: "#7a3418" },
+  { id: "t3", title: "03. Dynamic DAG Formulation", artist: "Swarm Architect Agent", colorA: "#4fd8e0", colorB: "#0e4a4c" },
+  { id: "t4", title: "04. Hybrid Vector RAG", artist: "Vector RAG Store", colorA: "#ffb35c", colorB: "#7a4a10" },
+  { id: "t5", title: "05. Autonomous Execution", artist: "Parallel Task Runner", colorA: "#38d5f0", colorB: "#132248" },
+  { id: "t6", title: "06. Self-Healing Recovery", artist: "LLM Diagnostic Engine", colorA: "#5ce0c6", colorB: "#0e4a3c" },
+  { id: "t7", title: "07. Hold-To-Confirm Gate", artist: "Human Authorization Gate", colorA: "#f0b438", colorB: "#7a5410" },
+  { id: "t8", title: "08. Evidence Extraction", artist: "Citation & Excerpt Engine", colorA: "#8ab8ff", colorB: "#1a2a5c" },
+  { id: "t9", title: "09. Dynamic Replanner", artist: "Failure Recovery Engine", colorA: "#ff7a6c", colorB: "#5c1818" },
+  { id: "t10", title: "10. Executive Synthesis", artist: "Chief Synthesis Agent", colorA: "#38d5f0", colorB: "#0e3a56" },
+  { id: "t11", title: "11. Evidence-Linked Claims", artist: "Confidence Scoring Engine", colorA: "#ff9a5c", colorB: "#5c2a10" },
+  { id: "t12", title: "12. Trajectory Replay", artist: "Audit & Replay Storage", colorA: "#8fa8ff", colorB: "#2c1a5c" },
 ]
 
 export interface MusicHeroProps {
@@ -314,15 +314,20 @@ export default function MusicHero({
     const onTouchEnd = () => {
       isDraggingRef.current = false
     }
-    window.addEventListener("wheel", onWheel, { passive: false })
-    window.addEventListener("touchstart", onTouchStart, { passive: true })
-    window.addEventListener("touchmove", onTouchMove, { passive: false })
-    window.addEventListener("touchend", onTouchEnd)
+    const targetEl = listViewportRef.current ?? cardRef.current
+    if (targetEl) {
+      targetEl.addEventListener("wheel", onWheel, { passive: false })
+      targetEl.addEventListener("touchstart", onTouchStart, { passive: true })
+      targetEl.addEventListener("touchmove", onTouchMove, { passive: false })
+      targetEl.addEventListener("touchend", onTouchEnd)
+    }
     return () => {
-      window.removeEventListener("wheel", onWheel)
-      window.removeEventListener("touchstart", onTouchStart)
-      window.removeEventListener("touchmove", onTouchMove)
-      window.removeEventListener("touchend", onTouchEnd)
+      if (targetEl) {
+        targetEl.removeEventListener("wheel", onWheel)
+        targetEl.removeEventListener("touchstart", onTouchStart)
+        targetEl.removeEventListener("touchmove", onTouchMove)
+        targetEl.removeEventListener("touchend", onTouchEnd)
+      }
     }
   }, [])
 

@@ -114,15 +114,23 @@ export async function indexDataSource(sourceId: string, name: string, content: s
   }
 }
 
-export async function hybridVectorSearch(query: string, limit = 5): Promise<VectorChunk[]> {
+export async function hybridVectorSearch(query: string, limit = 5, userId?: string | null): Promise<VectorChunk[]> {
   const sql = db();
   const queryVec = computeTermVector(query);
-  const rows = await sql`
-    SELECT v.id, v.source_id, v.chunk_index, v.content, v.embedding_json, d.name as source_name
-    FROM vector_embeddings v
-    JOIN data_sources d ON v.source_id = d.id
-    LIMIT 200
-  `;
+  const rows = userId
+    ? await sql`
+        SELECT v.id, v.source_id, v.chunk_index, v.content, v.embedding_json, d.name as source_name
+        FROM vector_embeddings v
+        JOIN data_sources d ON v.source_id = d.id
+        WHERE d.user_id = ${userId}
+        LIMIT 200
+      `
+    : await sql`
+        SELECT v.id, v.source_id, v.chunk_index, v.content, v.embedding_json, d.name as source_name
+        FROM vector_embeddings v
+        JOIN data_sources d ON v.source_id = d.id
+        LIMIT 200
+      `;
 
   if (!rows || rows.length === 0) return [];
 

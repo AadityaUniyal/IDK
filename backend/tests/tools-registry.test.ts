@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { calculate, executeCode } from "../lib/tools/registry";
+import { calculate, executeCode, runSql, inspectCodeDiff } from "../lib/tools/registry";
 
 describe("Tool Registry & Execution Safety", () => {
   it("calculates numeric math expressions deterministically", async () => {
@@ -38,5 +38,28 @@ describe("Tool Registry & Execution Safety", () => {
         /Security policy error: code contains prohibited pattern/
       );
     }
+  });
+
+  it("terminates infinite loops with execution timeout", async () => {
+    await assert.rejects(
+      async () => executeCode.execute({ code: "while (true) {}" }, { userId: "u1", missionId: "m1" }),
+      /Code execution error: Script execution timed out/
+    );
+  });
+
+  it("validates read-only SELECT constraints in run_sql tool", async () => {
+    await assert.rejects(
+      async () => runSql.execute({ query: "DELETE FROM users" }, { userId: "u1", missionId: "m1" }),
+      /Security policy error: run_sql only permits read-only SELECT queries/
+    );
+  });
+
+  it("analyzes additions and deletions in inspect_code_diff tool", async () => {
+    const res = await inspectCodeDiff.execute(
+      { original: "line 1\nline 2", modified: "line 1\nline 2\nline 3" },
+      { userId: "u1", missionId: "m1" }
+    );
+    assert.ok(res.output.includes("Added lines (+1)"));
+    assert.ok(res.output.includes("+ line 3"));
   });
 });

@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Activity, Database, LayoutDashboard, LogOut, Menu, Plus, ShieldCheck, Sparkles, Wrench, Settings, X } from "lucide-react";
+import { Activity, Database, LayoutDashboard, LogOut, Menu, Plus, RotateCcw, ShieldCheck, Sparkles, Wrench, Settings, X } from "lucide-react";
 import Logo from "@/components/ui/logo";
 
 const nav = [
@@ -12,6 +12,7 @@ const nav = [
   { href: "/app/data", label: "Data sources", icon: Database },
   { href: "/app/tools", label: "Tool registry", icon: Wrench },
   { href: "/app/approvals", label: "Approvals", icon: ShieldCheck },
+  { href: "/app/replay", label: "Trajectory replay", icon: RotateCcw },
   { href: "/app/settings", label: "Settings", icon: Settings },
 ];
 

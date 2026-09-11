@@ -1,6 +1,6 @@
 import type { LLMProvider, LLMRequest, LLMResponse } from "./provider";
 
-const MODEL = "openai/gpt-oss-120b";
+const MODEL = "llama-3.3-70b-versatile";
 
 export const groq: LLMProvider = {
   name: "groq",

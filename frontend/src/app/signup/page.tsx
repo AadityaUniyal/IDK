@@ -15,6 +15,14 @@ export default function SignupPage() {
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+      setError("Please enter a valid email address");
+      return;
+    }
+    if (password.length < 8) {
+      setError("Password must be at least 8 characters long");
+      return;
+    }
     setLoading(true);
     setError("");
     const res = await fetch("/api/auth/signup", {
@@ -43,7 +51,7 @@ export default function SignupPage() {
           <input type="email" required placeholder="Email" autoComplete="email" value={email}
             onChange={(e) => setEmail(e.target.value)}
             className="w-full rounded-lg border border-border bg-surface-2 px-4 py-3 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-accent" />
-          <input type="password" required placeholder="Password (min 6 characters)" autoComplete="new-password" value={password}
+          <input type="password" required placeholder="Password (min 8 characters)" autoComplete="new-password" value={password}
             onChange={(e) => setPassword(e.target.value)}
             className="w-full rounded-lg border border-border bg-surface-2 px-4 py-3 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-accent" />
           {error && <p className="rounded-lg border border-red-500/40 bg-red-500/10 px-4 py-2 text-sm text-red-300">{error}</p>}
