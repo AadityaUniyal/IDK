@@ -33,6 +33,7 @@ export async function POST(req: NextRequest) {
       if (String(body.base64).length > MAX_CONTENT * 1.5) return NextResponse.json({ error: "Uploaded file is too large" }, { status: 413 });
       content = Buffer.from(body.base64, "base64").toString("utf8");
     }
+    content = content.replace(/\0/g, "");
     if (!name || !content.trim()) return NextResponse.json({ error: "name and content are required" }, { status: 400 });
     if (content.length > MAX_CONTENT) return NextResponse.json({ error: `Source exceeds the ${MAX_CONTENT.toLocaleString()} character limit` }, { status: 413 });
     const type = detectType(name);

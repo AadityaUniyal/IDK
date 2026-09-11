@@ -237,6 +237,8 @@ const STATEMENTS = [
   `CREATE INDEX IF NOT EXISTS idx_vector_embeddings_source ON vector_embeddings(source_id)`,
   `CREATE INDEX IF NOT EXISTS idx_agent_memories_user ON agent_memories(user_id)`,
   `CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_artifacts_mission ON artifacts(mission_id)`,
   `CREATE INDEX IF NOT EXISTS idx_data_sources_user ON data_sources(user_id)`,
   `CREATE INDEX IF NOT EXISTS idx_tasks_status ON mission_tasks(status)`,
   `CREATE INDEX IF NOT EXISTS idx_approvals_status ON approvals(status)`,

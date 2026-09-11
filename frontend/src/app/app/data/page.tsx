@@ -62,7 +62,12 @@ export default function DataPage() {
   }
 
   async function remove(id: string) {
-    await fetch(`/api/data-sources?id=${id}`, { method: "DELETE" });
+    const res = await fetch(`/api/data-sources/${id}`, { method: "DELETE" });
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}));
+      setError(d.error ?? "Failed to delete data source");
+      return;
+    }
     load();
   }
 
